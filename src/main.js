@@ -168,16 +168,17 @@ resetBtn?.addEventListener('click', () => {
   updateUI();
 });
 
-/* ─── 鼠标拖拽旋转面 ─── */
-const _raycaster = new THREE.Raycaster();
-const _pointer = new THREE.Vector2();
+/* ─── 鼠标拖拽旋转面（实时跟随） ─── */
+const _rc = new THREE.Raycaster();
+const _pt = new THREE.Vector2();
 
-let _dragState = null; // { face, plane, startPoint, normal, screenX, screenY }
+/** @type {{ drag: object, plane: THREE.Plane, axis: string, initAngle: number }|null} */
+let _dragState = null;
 
-function _ndcFromEvent(event) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  _pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  _pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+function _ndc(event) {
+  const r = renderer.domElement.getBoundingClientRect();
+  _pt.x = ((event.clientX - r.left) / r.width) * 2 - 1;
+  _pt.y = -((event.clientY - r.top) / r.height) * 2 + 1;
 }
 
 function _faceFromNormal(normal) {
@@ -187,13 +188,34 @@ function _faceFromNormal(normal) {
   return normal.z > 0 ? 'F' : 'B';
 }
 
+/** 将鼠标射线与平面（过原点垂直于法线）相交，返回 3D 交点 */
+function _rayPlaneHit(event, plane) {
+  _ndc(event);
+  _rc.setFromCamera(_pt, camera);
+  const d = plane.normal.dot(_rc.ray.direction);
+  if (Math.abs(d) < 0.0001) return null;
+  const t = -(plane.normal.dot(_rc.ray.origin) + plane.constant) / d;
+  if (t < 0) return null;
+  return _rc.ray.origin.clone().add(_rc.ray.direction.clone().multiplyScalar(t));
+}
+
+/** 在面的 2D 平面坐标系中计算点的角度（弧度） */
+function _angleInFace(axis, point) {
+  switch (axis) {
+    case 'x': return Math.atan2(point.z, point.y);
+    case 'y': return Math.atan2(point.z, point.x);
+    case 'z': return Math.atan2(point.y, point.x);
+    default:  return 0;
+  }
+}
+
+/* ─── pointerdown ─── */
 renderer.domElement.addEventListener('pointerdown', (event) => {
   if (cube.isAnimating) return;
 
-  _ndcFromEvent(event);
-  _raycaster.setFromCamera(_pointer, camera);
-
-  const hits = _raycaster.intersectObjects(cube.cubelets, false);
+  _ndc(event);
+  _rc.setFromCamera(_pt, camera);
+  const hits = _rc.intersectObjects(cube.cubelets, false);
   if (!hits.length) return;
 
   const hit = hits[0];
@@ -202,81 +224,89 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
   normal.x = Math.round(normal.x);
   normal.y = Math.round(normal.y);
   normal.z = Math.round(normal.z);
-
   const face = _faceFromNormal(normal);
+
+  // 开始拖拽
+  const drag = cube.startDrag(face);
+  if (!drag) return;
 
   // 垂直于面法线的平面（过原点）
   const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(0, 0, 0));
 
-  const startPoint = new THREE.Vector3();
-  plane.projectPoint(hit.point, startPoint);
+  // 初始角度（鼠标按下时的角度）
+  const start3d = _rayPlaneHit(event, plane) ?? (() => {
+    const p = new THREE.Vector3();
+    plane.projectPoint(hit.point, p);
+    return p;
+  })();
 
-  _dragState = { face, plane, startPoint, normal, screenX: event.clientX, screenY: event.clientY };
+  const axis = RubiksCube.getFaceDef(face).axis;
+  const initAngle = _angleInFace(axis, start3d);
+
+  _dragState = { drag, plane, axis, initAngle };
   controls.enabled = false;
+  renderer.domElement.style.cursor = 'grabbing';
 });
 
+/* ─── pointermove ─── */
 renderer.domElement.addEventListener('pointermove', (event) => {
-  if (_dragState) return; // 拖拽中，不改变光标
+  // 拖拽中：实时更新面旋转
+  if (_dragState) {
+    const cur3d = _rayPlaneHit(event, _dragState.plane);
+    if (cur3d) {
+      const curAngle = _angleInFace(_dragState.axis, cur3d);
+      let delta = curAngle - _dragState.initAngle;
+      // 归一化到 [-π, π]
+      while (delta > Math.PI)  delta -= 2 * Math.PI;
+      while (delta < -Math.PI) delta += 2 * Math.PI;
+      cube.updateDrag(_dragState.drag, delta);
+    }
+    renderer.domElement.style.cursor = 'grabbing';
+    return;
+  }
 
+  // 非拖拽：悬停检测
   if (cube.isAnimating) {
     renderer.domElement.style.cursor = 'wait';
     return;
   }
-
-  _ndcFromEvent(event);
-  _raycaster.setFromCamera(_pointer, camera);
-  const hits = _raycaster.intersectObjects(cube.cubelets, false);
+  _ndc(event);
+  _rc.setFromCamera(_pt, camera);
+  const hits = _rc.intersectObjects(cube.cubelets, false);
   renderer.domElement.style.cursor = hits.length ? 'grab' : '';
 });
 
-renderer.domElement.addEventListener('pointerup', (event) => {
+/* ─── pointerup ─── */
+renderer.domElement.addEventListener('pointerup', async () => {
   if (!_dragState) return;
-
-  const dx = event.clientX - _dragState.screenX;
-  const dy = event.clientY - _dragState.screenY;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-
-  if (dist > 25) {
-    // 将当前鼠标投影到面平面上，确定拖拽方向
-    _ndcFromEvent(event);
-    _raycaster.setFromCamera(_pointer, camera);
-
-    const ray = _raycaster.ray;
-    const plane = _dragState.plane;
-    const denom = plane.normal.dot(ray.direction);
-
-    if (Math.abs(denom) > 0.0001) {
-      const t = -(plane.normal.dot(ray.origin) + plane.constant) / denom;
-      if (t > 0) {
-        const endPoint = ray.origin.clone().add(ray.direction.clone().multiplyScalar(t));
-
-        // v1×v2 与法线点积 → 判断顺时针/逆时针
-        const v1 = _dragState.startPoint.clone().normalize();
-        const v2 = endPoint.clone().normalize();
-        const cross = new THREE.Vector3().crossVectors(v1, v2);
-        const dot = cross.dot(_dragState.normal);
-
-        const dir = dot < 0 ? 1 : -1;
-        cube.doMove(_dragState.face, dir).then(updateUI);
-      }
-    }
-  }
-
+  const { drag } = _dragState;
   _dragState = null;
+
+  await cube.endDrag(drag);
   controls.enabled = true;
+  updateUI();
   renderer.domElement.style.cursor = '';
 });
 
+/* ─── pointerleave / pointercancel ─── */
 renderer.domElement.addEventListener('pointerleave', () => {
-  if (_dragState) {
-    _dragState = null;
+  if (!_dragState) return;
+  const { drag } = _dragState;
+  _dragState = null;
+  cube.endDrag(drag).then(() => {
     controls.enabled = true;
+    updateUI();
     renderer.domElement.style.cursor = '';
-  }
+  });
 });
 
 renderer.domElement.addEventListener('pointercancel', () => {
+  if (!_dragState) return;
+  const { drag } = _dragState;
   _dragState = null;
-  controls.enabled = true;
-  renderer.domElement.style.cursor = '';
+  cube.endDrag(drag).then(() => {
+    controls.enabled = true;
+    updateUI();
+    renderer.domElement.style.cursor = '';
+  });
 });

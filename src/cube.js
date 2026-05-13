@@ -192,6 +192,120 @@ export class RubiksCube {
     });
   }
 
+  /* ─── 辅助：选中某一面的所有小方块 ─── */
+  _selectCubiesForFace(face) {
+    const d = FACE_DEFS[face];
+    return this.cubelets.filter(c => Math.abs(c.position[d.axis] - d.layer) < 0.5);
+  }
+
+  /* ─── 辅助：创建 pivot 并将小方块挂上去 ─── */
+  _createPivot(cubies) {
+    const pivot = new THREE.Object3D();
+    this.scene.add(pivot);
+    cubies.forEach(c => pivot.attach(c));
+    return pivot;
+  }
+
+  /* ─── 辅助：将小方块从 pivot 拆回场景并取整 ─── */
+  _finalizeDrag({ pivot, cubies }) {
+    pivot.updateMatrixWorld(true);
+    cubies.forEach(c => {
+      this.scene.attach(c);
+      c.position.x = Math.round(c.position.x);
+      c.position.y = Math.round(c.position.y);
+      c.position.z = Math.round(c.position.z);
+    });
+    this.scene.remove(pivot);
+    this.isAnimating = false;
+  }
+
+  /* ─── 获取面定义（供外界拖拽计算角度用） ─── */
+  static getFaceDef(face) {
+    return FACE_DEFS[face];
+  }
+
+  /* ─── 拖拽：开始 ─── */
+  /**
+   * 在面上按下时调用，创建 pivot 并将该层小方块挂上去。
+   * @param {string} face  'R'|'L'|'U'|'D'|'F'|'B'
+   * @returns {object|null} drag 句柄，返回 null 表示无法开始（动画中）
+   */
+  startDrag(face) {
+    if (this.isAnimating) return null;
+    this.isAnimating = true;
+
+    const cubies = this._selectCubiesForFace(face);
+    const pivot = this._createPivot(cubies);
+    return {
+      pivot,
+      axis:     FACE_DEFS[face].axis,
+      sign:     FACE_DEFS[face].sign,
+      cubies,
+      face,
+    };
+  }
+
+  /* ─── 拖拽：更新旋转角度 ─── */
+  /**
+   * 鼠标拖动过程中持续调用，让该面跟随鼠标旋转。
+   * @param {object} drag      startDrag 返回的句柄
+   * @param {number} angleRad  累计旋转弧度（正值为面上顺时针方向）
+   */
+  updateDrag(drag, angleRad) {
+    drag.pivot.rotation[drag.axis] = drag.sign * angleRad;
+  }
+
+  /* ─── 拖拽：结束（吸附到最近 90° + 记录历史） ─── */
+  /**
+   * 鼠标松开时调用，吸附到最近的 90° 位置并拆回场景。
+   * @param {object} drag  startDrag 返回的句柄
+   * @returns {{ snappedDir: number }}  旋转方向：1 顺 / -1 逆 / 0 取消
+   */
+  async endDrag(drag) {
+    const currentAngle = drag.pivot.rotation[drag.axis];
+    const faceAngle = currentAngle / drag.sign;   // 去掉符号得到「面空间」角度
+
+    // 吸附到最近的 90°
+    let snapped = Math.round(faceAngle / (Math.PI / 2)) * (Math.PI / 2);
+
+    // 如果不足 30° 则回弹取消
+    if (Math.abs(snapped) < Math.PI / 6) {
+      snapped = 0;
+    }
+
+    const targetAngle = drag.sign * snapped;
+
+    // 短动画平滑吸附 / 回弹
+    const startAngle = currentAngle;
+    const duration = 70;
+    const startTime = performance.now();
+
+    await new Promise(resolve => {
+      const tick = () => {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = easeInOutCubic(t);
+        drag.pivot.rotation[drag.axis] = startAngle + (targetAngle - startAngle) * eased;
+
+        if (t < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          drag.pivot.rotation[drag.axis] = targetAngle;
+          this._finalizeDrag(drag);
+          resolve();
+        }
+      };
+      tick();
+    });
+
+    if (snapped !== 0) {
+      const dir = snapped > 0 ? 1 : -1;
+      this.moveHistory.push({ face: drag.face, direction: dir });
+      return { snappedDir: dir };
+    }
+    return { snappedDir: 0 };
+  }
+
   /* ─── 便捷方法：一次旋转+记录 ─── */
   async doMove(face, dir = 1) {
     await this.rotateFace(face, dir);
