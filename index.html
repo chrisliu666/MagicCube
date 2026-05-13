@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MagicCube — 3D 魔方</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- 控制面板 -->
+  <div id="controls">
+    <div class="ctrl-section">
+      <div class="ctrl-label">面操作（也可按键盘 r/R l/L u/U d/D f/F b/B）</div>
+      <div class="face-buttons">
+        <span class="face-group">
+          <button class="face-btn R"  data-face="R" data-dir="1">R</button>
+          <button class="face-btn R'" data-face="R" data-dir="-1">R'</button>
+        </span>
+        <span class="face-group">
+          <button class="face-btn L"  data-face="L" data-dir="1">L</button>
+          <button class="face-btn L'" data-face="L" data-dir="-1">L'</button>
+        </span>
+        <span class="face-group">
+          <button class="face-btn U"  data-face="U" data-dir="1">U</button>
+          <button class="face-btn U'" data-face="U" data-dir="-1">U'</button>
+        </span>
+        <span class="face-group">
+          <button class="face-btn D"  data-face="D" data-dir="1">D</button>
+          <button class="face-btn D'" data-face="D" data-dir="-1">D'</button>
+        </span>
+        <span class="face-group">
+          <button class="face-btn F"  data-face="F" data-dir="1">F</button>
+          <button class="face-btn F'" data-face="F" data-dir="-1">F'</button>
+        </span>
+        <span class="face-group">
+          <button class="face-btn B"  data-face="B" data-dir="1">B</button>
+          <button class="face-btn B'" data-face="B" data-dir="-1">B'</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="ctrl-section row">
+      <div class="ctrl-label">
+        打乱步数：
+        <input type="number" id="scramble-count" value="20" min="5" max="100" />
+      </div>
+      <button id="btn-scramble" class="action-btn scramble">打乱</button>
+      <button id="btn-solve"    class="action-btn solve">还原</button>
+      <button id="btn-reset"    class="action-btn reset">重置</button>
+      <span class="spacer"></span>
+      <span class="info">步数：<span id="move-count">0</span></span>
+      <span class="info">状态：<span id="status" class="status-ready">就绪</span></span>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
