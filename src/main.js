@@ -168,19 +168,27 @@ resetBtn?.addEventListener('click', () => {
   updateUI();
 });
 
-/* ─── 高亮蒙版（带厚度的半透明片，边缘加边框） ─── */
+/* ─── 高亮蒙版 ─── */
+// 使用 depthTest:false 确保蒙版始终显示在方块之上
 const _overlayMat = new THREE.MeshBasicMaterial({
-  color: 0xffffff,
+  color: 0xddddff,
   transparent: true,
   opacity: 0,
   depthWrite: false,
+  depthTest: false,
   side: THREE.DoubleSide,
 });
-const _overlay = new THREE.Mesh(new THREE.BoxGeometry(2.9, 2.9, 0.06), _overlayMat);
-// 边框线
+const _overlay = new THREE.Mesh(new THREE.BoxGeometry(2.95, 2.95, 0.08), _overlayMat);
+// 白色边框，始终可见
+const _edgeMat = new THREE.LineBasicMaterial({
+  color: 0xffffff,
+  transparent: true,
+  opacity: 0.7,
+  depthTest: false,
+});
 const _overlayEdge = new THREE.LineSegments(
-  new THREE.EdgesGeometry(new THREE.BoxGeometry(2.91, 2.91, 0.065)),
-  new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }),
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(2.96, 2.96, 0.085)),
+  _edgeMat,
 );
 _overlay.add(_overlayEdge);
 _overlay.visible = false;
@@ -331,7 +339,7 @@ renderer.domElement.addEventListener('pointermove', (event) => {
     if (Math.abs(n[ax]) > 0.9) {
       if (face !== _lastHoverFace) {
         _lastHoverFace = face;
-        _showOverlay(face, 0.25);
+        _showOverlay(face, 0.4);
       }
       renderer.domElement.style.cursor = 'grab';
     } else {
