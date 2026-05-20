@@ -169,28 +169,27 @@ resetBtn?.addEventListener('click', () => {
 });
 
 /* ─── 高亮蒙版 ─── */
-// 使用 depthTest:false 确保蒙版始终显示在方块之上
+// 每个面的朝向旋转（PlaneGeometry 默认法线 +Z）
+const FACE_ROT = {
+  R: new THREE.Euler(0, -Math.PI/2, 0),
+  L: new THREE.Euler(0,  Math.PI/2, 0),
+  U: new THREE.Euler(-Math.PI/2, 0, 0),
+  D: new THREE.Euler( Math.PI/2, 0, 0),
+  F: new THREE.Euler(0, 0, 0),
+  B: new THREE.Euler(0, Math.PI, 0),
+};
+// 蒙版中心到立方体表面的距离（cubelet 半宽 0.475 + 小偏移）
+const FACE_OFFSET = 1.48;
+
 const _overlayMat = new THREE.MeshBasicMaterial({
-  color: 0xddddff,
+  color: 0x4488ff,
   transparent: true,
   opacity: 0,
   depthWrite: false,
   depthTest: false,
   side: THREE.DoubleSide,
 });
-const _overlay = new THREE.Mesh(new THREE.BoxGeometry(2.95, 2.95, 0.08), _overlayMat);
-// 白色边框，始终可见
-const _edgeMat = new THREE.LineBasicMaterial({
-  color: 0xffffff,
-  transparent: true,
-  opacity: 0.7,
-  depthTest: false,
-});
-const _overlayEdge = new THREE.LineSegments(
-  new THREE.EdgesGeometry(new THREE.BoxGeometry(2.96, 2.96, 0.085)),
-  _edgeMat,
-);
-_overlay.add(_overlayEdge);
+const _overlay = new THREE.Mesh(new THREE.PlaneGeometry(2.85, 2.85), _overlayMat);
 _overlay.visible = false;
 scene.add(_overlay);
 
@@ -198,17 +197,10 @@ let _lastHoverFace = null;
 
 function _showOverlay(face, opacity) {
   const d = RubiksCube.getFaceDef(face);
-  _overlay.rotation.set(0, 0, 0);
-
   const pos = new THREE.Vector3();
-  pos[d.axis] = d.layer * 1.02;
+  pos[d.axis] = d.layer * FACE_OFFSET;
   _overlay.position.copy(pos);
-
-  // 平面朝向法线方向
-  const target = new THREE.Vector3();
-  target[d.axis] = d.layer * 2;
-  _overlay.lookAt(target);
-
+  _overlay.rotation.copy(FACE_ROT[face]);
   _overlayMat.opacity = opacity;
   _overlay.visible = true;
 }
