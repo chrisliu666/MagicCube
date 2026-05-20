@@ -168,6 +168,44 @@ resetBtn?.addEventListener('click', () => {
   updateUI();
 });
 
+/* ─── 高亮蒙版 ─── */
+const _overlayMat = new THREE.MeshBasicMaterial({
+  color: 0xffffff,
+  transparent: true,
+  opacity: 0,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  polygonOffset: true,
+  polygonOffsetFactor: -1,
+});
+const _overlay = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 3.0), _overlayMat);
+_overlay.visible = false;
+scene.add(_overlay);
+
+let _lastHoverFace = null;
+
+function _showOverlay(face, opacity) {
+  const d = RubiksCube.getFaceDef(face);
+  _overlay.rotation.set(0, 0, 0);
+
+  const pos = new THREE.Vector3();
+  pos[d.axis] = d.layer * 1.02;
+  _overlay.position.copy(pos);
+
+  // 平面朝向法线方向
+  const target = new THREE.Vector3();
+  target[d.axis] = d.layer * 2;
+  _overlay.lookAt(target);
+
+  _overlayMat.opacity = opacity;
+  _overlay.visible = true;
+}
+
+function _hideOverlay() {
+  _overlay.visible = false;
+  _lastHoverFace = null;
+}
+
 /* ─── 鼠标拖拽旋转面（实时跟随） ─── */
 const _rc = new THREE.Raycaster();
 const _pt = new THREE.Vector2();
@@ -226,8 +264,8 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
   normal.z = Math.round(normal.z);
   const face = _faceFromNormal(normal);
 
-  // 开始拖拽
-  const drag = cube.startDrag(face);
+  // 开始拖拽（传入蒙版，使其旋转跟随）
+  const drag = cube.startDrag(face, _overlay);
   if (!drag) return;
 
   // 垂直于面法线的平面（过原点）
@@ -265,15 +303,41 @@ renderer.domElement.addEventListener('pointermove', (event) => {
     return;
   }
 
-  // 非拖拽：悬停检测
+  // 非拖拽：悬停检测 + 高亮蒙版
   if (cube.isAnimating) {
+    _hideOverlay();
     renderer.domElement.style.cursor = 'wait';
     return;
   }
   _ndc(event);
   _rc.setFromCamera(_pt, camera);
   const hits = _rc.intersectObjects(cube.cubelets, false);
-  renderer.domElement.style.cursor = hits.length ? 'grab' : '';
+
+  if (hits.length) {
+    const hit = hits[0];
+    const n = hit.face.normal.clone();
+    n.transformDirection(hit.object.matrixWorld);
+    n.x = Math.round(n.x);
+    n.y = Math.round(n.y);
+    n.z = Math.round(n.z);
+    const face = _faceFromNormal(n);
+    const ax = RubiksCube.getFaceDef(face).axis;
+
+    // 只在鼠标所落小方块正对的面显示蒙版，避免边缘误触
+    if (Math.abs(n[ax]) > 0.9) {
+      if (face !== _lastHoverFace) {
+        _lastHoverFace = face;
+        _showOverlay(face, 0.1);
+      }
+      renderer.domElement.style.cursor = 'grab';
+    } else {
+      _hideOverlay();
+      renderer.domElement.style.cursor = '';
+    }
+  } else {
+    _hideOverlay();
+    renderer.domElement.style.cursor = '';
+  }
 });
 
 /* ─── pointerup ─── */
@@ -282,7 +346,8 @@ renderer.domElement.addEventListener('pointerup', async () => {
   const { drag } = _dragState;
   _dragState = null;
 
-  await cube.endDrag(drag);
+  await cube.endDrag(drag, _overlay);
+  _hideOverlay();
   controls.enabled = true;
   updateUI();
   renderer.domElement.style.cursor = '';
@@ -290,10 +355,12 @@ renderer.domElement.addEventListener('pointerup', async () => {
 
 /* ─── pointerleave / pointercancel ─── */
 renderer.domElement.addEventListener('pointerleave', () => {
+  _hideOverlay();
   if (!_dragState) return;
   const { drag } = _dragState;
   _dragState = null;
-  cube.endDrag(drag).then(() => {
+  cube.endDrag(drag, _overlay).then(() => {
+    _hideOverlay();
     controls.enabled = true;
     updateUI();
     renderer.domElement.style.cursor = '';
@@ -301,10 +368,12 @@ renderer.domElement.addEventListener('pointerleave', () => {
 });
 
 renderer.domElement.addEventListener('pointercancel', () => {
+  _hideOverlay();
   if (!_dragState) return;
   const { drag } = _dragState;
   _dragState = null;
-  cube.endDrag(drag).then(() => {
+  cube.endDrag(drag, _overlay).then(() => {
+    _hideOverlay();
     controls.enabled = true;
     updateUI();
     renderer.domElement.style.cursor = '';

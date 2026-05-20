@@ -227,15 +227,20 @@ export class RubiksCube {
   /* ─── 拖拽：开始 ─── */
   /**
    * 在面上按下时调用，创建 pivot 并将该层小方块挂上去。
-   * @param {string} face  'R'|'L'|'U'|'D'|'F'|'B'
+   * @param {string}  face     'R'|'L'|'U'|'D'|'F'|'B'
+   * @param {THREE.Object3D} [overlay]  如果传入，会 attach 到 pivot 上一同旋转
    * @returns {object|null} drag 句柄，返回 null 表示无法开始（动画中）
    */
-  startDrag(face) {
+  startDrag(face, overlay) {
     if (this.isAnimating) return null;
     this.isAnimating = true;
 
     const cubies = this._selectCubiesForFace(face);
     const pivot = this._createPivot(cubies);
+
+    // 将高亮蒙版挂到 pivot 上，随面旋转
+    if (overlay) pivot.attach(overlay);
+
     return {
       pivot,
       axis:     FACE_DEFS[face].axis,
@@ -258,10 +263,11 @@ export class RubiksCube {
   /* ─── 拖拽：结束（吸附到最近 90° + 记录历史） ─── */
   /**
    * 鼠标松开时调用，吸附到最近的 90° 位置并拆回场景。
-   * @param {object} drag  startDrag 返回的句柄
+   * @param {object}  drag     startDrag 返回的句柄
+   * @param {THREE.Object3D} [overlay]  高亮蒙版，在清理 pivot 前拆回场景
    * @returns {{ snappedDir: number }}  旋转方向：1 顺 / -1 逆 / 0 取消
    */
-  async endDrag(drag) {
+  async endDrag(drag, overlay) {
     const currentAngle = drag.pivot.rotation[drag.axis];
     const faceAngle = currentAngle / drag.sign;   // 去掉符号得到「面空间」角度
 
@@ -291,6 +297,10 @@ export class RubiksCube {
           requestAnimationFrame(tick);
         } else {
           drag.pivot.rotation[drag.axis] = targetAngle;
+
+          // 在清理 pivot 前把蒙版拆回场景
+          if (overlay) this.scene.attach(overlay);
+
           this._finalizeDrag(drag);
           resolve();
         }
